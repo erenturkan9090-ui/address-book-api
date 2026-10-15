@@ -1,31 +1,21 @@
 'use strict';
 
+const { fold } = require('./text');
+
 const EMPTY_ADDRESS = { street: null, city: null, country: null, postalCode: null };
 
 // Locale-aware, accent/case-insensitive ordering ("Çelik" sorts with the C's).
 const collator = new Intl.Collator('tr', { sensitivity: 'base' });
 
-/**
- * Lower-cases and strips diacritics so "isik" finds "Işık" and "ayse" finds
- * "AYŞE". The Turkish locale is used for lower-casing because "I" and "İ"
- * map to different letters there; dotless "ı" is folded to "i" afterwards.
- */
-function fold(text) {
-  return String(text)
-    .toLocaleLowerCase('tr')
-    .replace(/ı/g, 'i')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-}
-
 function searchText(contact) {
-  const { firstName, lastName, email, phone, address } = contact;
-  return [firstName, lastName, email, phone, address.street, address.city, address.country, address.postalCode]
+  const { firstName, lastName, email, phone, address, tags } = contact;
+  return [firstName, lastName, email, phone, address.street, address.city, address.country, address.postalCode, ...tags]
     .filter(Boolean)
     .join(' ');
 }
 
 const SORT_KEYS = {
+  name: (c) => `${c.firstName} ${c.lastName}`,
   firstName: (c) => c.firstName,
   lastName: (c) => c.lastName,
   email: (c) => c.email,
@@ -77,6 +67,7 @@ class ContactStore {
       email: data.email ?? null,
       phone: data.phone ?? null,
       address: { ...EMPTY_ADDRESS, ...data.address },
+      tags: data.tags ?? [],
       favorite: data.favorite ?? false,
       createdAt: now,
       updatedAt: now,
@@ -100,6 +91,7 @@ class ContactStore {
       email: data.email ?? null,
       phone: data.phone ?? null,
       address: { ...EMPTY_ADDRESS, ...data.address },
+      tags: data.tags ?? [],
       favorite: data.favorite ?? false,
       updatedAt: new Date().toISOString(),
     };
@@ -107,7 +99,7 @@ class ContactStore {
     return next;
   }
 
-  /** PATCH: only the supplied fields change; address fields merge one by one. */
+  /** PATCH: only the supplied fields change; address fields merge one by one, tags are replaced as a whole. */
   patch(id, changes) {
     const current = this.contacts.get(id);
     if (!current) return undefined;
@@ -135,9 +127,26 @@ class ContactStore {
     return this.contacts.delete(id);
   }
 
-  list({ q, favorite, sortBy, order, page, limit }) {
+  /** Every tag in use with how many contacts carry it, for a "filter by tag" dropdown. */
+  listTags() {
+    const found = new Map();
+    for (const contact of this.contacts.values()) {
+      for (const tag of contact.tags) {
+        const entry = found.get(fold(tag));
+        if (entry) entry.count += 1;
+        else found.set(fold(tag), { tag, count: 1 });
+      }
+    }
+    return [...found.values()].sort((a, b) => collator.compare(a.tag, b.tag));
+  }
+
+  list({ q, tag, favorite, sortBy, order, page, limit }) {
     let rows = [...this.contacts.values()];
     if (favorite !== undefined) rows = rows.filter((c) => c.favorite === favorite);
+    if (tag) {
+      const wanted = fold(tag);
+      rows = rows.filter((c) => c.tags.some((t) => fold(t) === wanted));
+    }
     if (q) {
       const needle = fold(q);
       rows = rows.filter((c) => fold(searchText(c)).includes(needle));
@@ -158,27 +167,31 @@ function seedContacts(store) {
   const sample = [
     {
       firstName: 'Ayşe', lastName: 'Yılmaz', email: 'ayse.yilmaz@example.com', phone: '+90 555 010 1001',
-      address: { street: 'Atatürk Cad. 12', city: 'İzmir', country: 'Türkiye', postalCode: '35210' }, favorite: true,
+      address: { street: 'Atatürk Cad. 12', city: 'İzmir', country: 'Türkiye', postalCode: '35210' },
+      tags: ['Family', 'Friends'], favorite: true,
     },
     {
       firstName: 'Mehmet', lastName: 'Çelik', email: 'mehmet.celik@example.com', phone: '+90 555 010 1002',
       address: { street: 'Kızılay Sk. 5', city: 'Ankara', country: 'Türkiye', postalCode: '06420' },
+      tags: ['Work'],
     },
     {
       firstName: 'Işık', lastName: 'Demir', email: 'isik.demir@example.com', phone: '+90 555 010 1003',
-      address: { street: 'Bağdat Cad. 88', city: 'İstanbul', country: 'Türkiye', postalCode: '34728' }, favorite: true,
+      address: { street: 'Bağdat Cad. 88', city: 'İstanbul', country: 'Türkiye', postalCode: '34728' },
+      tags: ['Work', 'Friends'], favorite: true,
     },
     {
       firstName: 'John', lastName: 'Smith', email: 'john.smith@example.com', phone: '+1 555 010 1004',
       address: { street: '221 Main St', city: 'Boston', country: 'USA', postalCode: '02108' },
+      tags: ['Work'],
     },
     {
       firstName: 'Marie', lastName: 'Dubois', email: 'marie.dubois@example.com',
-      address: { city: 'Lyon', country: 'France' },
+      address: { city: 'Lyon', country: 'France' }, tags: ['Family'],
     },
-    { firstName: 'Zeynep', phone: '+90 555 010 1006' },
+    { firstName: 'Zeynep', lastName: 'Kaya', phone: '+90 555 010 1006', tags: ['Friends'] },
   ];
   sample.forEach((contact) => store.create(contact));
 }
 
-module.exports = { ContactStore, seedContacts, fold };
+module.exports = { ContactStore, seedContacts };

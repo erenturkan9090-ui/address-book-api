@@ -1,6 +1,6 @@
 'use strict';
 
-const { SORT_FIELDS, MAX_LIMIT } = require('./validation');
+const { SORT_FIELDS, MAX_LIMIT, MAX_TAGS, MAX_TAG_LENGTH } = require('./validation');
 
 const idParam = {
   name: 'id',
@@ -44,6 +44,7 @@ const fullExample = {
   email: 'ece.kaya@example.com',
   phone: '+90 555 010 2000',
   address: { street: 'Cumhuriyet Cad. 7', city: 'Bursa', country: 'Türkiye', postalCode: '16010' },
+  tags: ['Work', 'Friends'],
   favorite: false,
 };
 
@@ -64,6 +65,7 @@ module.exports = {
   tags: [
     { name: 'Contacts', description: 'Create, read, edit, update, delete, search and sort contacts.' },
     { name: 'Favorites', description: 'Mark or unmark a contact as a favorite.' },
+    { name: 'Tags', description: 'The tags in use, for a "filter by tag" dropdown.' },
     { name: 'System', description: 'Health check.' },
   ],
   paths: {
@@ -72,10 +74,16 @@ module.exports = {
         tags: ['Contacts'],
         summary: 'List, search, filter and sort contacts',
         description:
-          'Returns one page of contacts. `q` searches first name, last name, email, phone and every address ' +
+          'Returns one page of contacts. `q` searches name, email, phone, tags and every address ' +
           'field; it ignores case and Turkish accents (`isik` finds `Işık`) and also matches a full name such as `ayse yilmaz`.',
         parameters: [
           { name: 'q', in: 'query', description: 'Search text.', schema: { type: 'string', example: 'izmir' } },
+          {
+            name: 'tag',
+            in: 'query',
+            description: 'Only contacts that carry this tag (ignores case and accents). The tags in use are listed by `GET /tags`.',
+            schema: { type: 'string', example: 'Work' },
+          },
           {
             name: 'favorite',
             in: 'query',
@@ -85,7 +93,7 @@ module.exports = {
           {
             name: 'sortBy',
             in: 'query',
-            description: 'Field to sort by. Contacts missing that field always come last.',
+            description: 'Field to sort by. `name` is first name followed by last name. Contacts missing that field always come last.',
             schema: { type: 'string', enum: SORT_FIELDS, default: 'createdAt' },
           },
           {
@@ -123,7 +131,7 @@ module.exports = {
       post: {
         tags: ['Contacts'],
         summary: 'Create a contact',
-        description: 'Only `firstName` is required. The new contact is returned with its id; the `Location` header points to it.',
+        description: '`firstName` and `lastName` are required. The new contact is returned with its id; the `Location` header points to it.',
         requestBody: jsonBody('ContactInput', fullExample),
         responses: {
           201: contactResponse('The created contact.'),
@@ -142,7 +150,7 @@ module.exports = {
         tags: ['Contacts'],
         summary: 'Edit a contact (replace all fields)',
         description:
-          'Replaces every editable field. Fields left out are reset to their defaults (empty, `favorite: false`), ' +
+          'Replaces every editable field. Fields left out are reset to their defaults (empty, `tags: []`, `favorite: false`), ' +
           'so send the full contact. To change only some fields use `PATCH`.',
         requestBody: jsonBody('ContactInput', fullExample),
         responses: { 200: contactResponse('The replaced contact.'), 400: badRequest, 404: notFound },
@@ -152,8 +160,9 @@ module.exports = {
         summary: 'Update a contact (change only some fields)',
         description:
           'Only the fields you send change. Address fields merge one by one, so `{"address":{"city":"Bursa"}}` ' +
-          'leaves the street alone. Send `null` to clear a field (`"address": null` clears the whole address).',
-        requestBody: jsonBody('ContactPatch', { phone: '+90 555 010 9999', address: { city: 'Bursa' } }),
+          'leaves the street alone. `tags` is replaced as a whole list. Send `null` to clear an optional field ' +
+          '(`"address": null` clears the whole address, `"tags": null` removes all tags); the names cannot be cleared.',
+        requestBody: jsonBody('ContactPatch', { phone: '+90 555 010 9999', address: { city: 'Bursa' }, tags: ['Family'] }),
         responses: { 200: contactResponse('The updated contact.'), 400: badRequest, 404: notFound },
       },
       delete: {
@@ -175,6 +184,19 @@ module.exports = {
         summary: 'Remove a contact from favorites',
         description: 'Idempotent. The contact itself is kept; use `DELETE /contacts/{id}` to delete it.',
         responses: { 200: contactResponse('The contact, no longer a favorite.'), 400: badRequest, 404: notFound },
+      },
+    },
+    '/tags': {
+      get: {
+        tags: ['Tags'],
+        summary: 'List the tags in use',
+        description: 'Each tag once, sorted A-Z, with the number of contacts that carry it. Use a tag as the `tag` filter of `GET /contacts`.',
+        responses: {
+          200: {
+            description: 'The tags in use.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/TagList' } } },
+          },
+        },
       },
     },
     '/health': {
@@ -212,16 +234,24 @@ module.exports = {
           postalCode: { type: 'string', nullable: true, maxLength: 20, example: '35210' },
         },
       },
+      Tags: {
+        type: 'array',
+        maxItems: MAX_TAGS,
+        description: `Up to ${MAX_TAGS} short labels. Duplicates that differ only in case or accents are merged.`,
+        items: { type: 'string', minLength: 1, maxLength: MAX_TAG_LENGTH },
+        example: ['Work', 'Friends'],
+      },
       ContactInput: {
         type: 'object',
-        required: ['firstName'],
+        required: ['firstName', 'lastName'],
         additionalProperties: false,
         properties: {
           firstName: { type: 'string', minLength: 1, maxLength: 100, example: 'Ece' },
-          lastName: { type: 'string', nullable: true, maxLength: 100, example: 'Kaya' },
+          lastName: { type: 'string', minLength: 1, maxLength: 100, example: 'Kaya' },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 254, example: 'ece.kaya@example.com' },
           phone: { type: 'string', nullable: true, maxLength: 20, example: '+90 555 010 2000' },
           address: { $ref: '#/components/schemas/Address' },
+          tags: { $ref: '#/components/schemas/Tags' },
           favorite: { type: 'boolean', default: false },
         },
       },
@@ -232,10 +262,11 @@ module.exports = {
         description: 'Any subset of the contact fields.',
         properties: {
           firstName: { type: 'string', minLength: 1, maxLength: 100 },
-          lastName: { type: 'string', nullable: true, maxLength: 100 },
+          lastName: { type: 'string', minLength: 1, maxLength: 100 },
           email: { type: 'string', format: 'email', nullable: true, maxLength: 254 },
           phone: { type: 'string', nullable: true, maxLength: 20 },
           address: { $ref: '#/components/schemas/Address' },
+          tags: { $ref: '#/components/schemas/Tags' },
           favorite: { type: 'boolean' },
         },
       },
@@ -244,10 +275,11 @@ module.exports = {
         properties: {
           id: { type: 'integer', readOnly: true, example: 1 },
           firstName: { type: 'string', example: 'Ayşe' },
-          lastName: { type: 'string', nullable: true, example: 'Yılmaz' },
+          lastName: { type: 'string', example: 'Yılmaz' },
           email: { type: 'string', nullable: true, example: 'ayse.yilmaz@example.com' },
           phone: { type: 'string', nullable: true, example: '+90 555 010 1001' },
           address: { $ref: '#/components/schemas/Address' },
+          tags: { $ref: '#/components/schemas/Tags' },
           favorite: { type: 'boolean', example: true },
           createdAt: { type: 'string', format: 'date-time', readOnly: true },
           updatedAt: { type: 'string', format: 'date-time', readOnly: true },
@@ -264,6 +296,21 @@ module.exports = {
               page: { type: 'integer', example: 1 },
               limit: { type: 'integer', example: 20 },
               totalPages: { type: 'integer', example: 1 },
+            },
+          },
+        },
+      },
+      TagList: {
+        type: 'object',
+        properties: {
+          data: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                tag: { type: 'string', example: 'Work' },
+                count: { type: 'integer', description: 'Contacts that carry this tag.', example: 3 },
+              },
             },
           },
         },

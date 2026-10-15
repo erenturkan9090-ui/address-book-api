@@ -42,13 +42,15 @@ const names = (res) => res.json.data.map((c) => c.firstName);
 
 test('POST /contacts creates a contact with defaults and a Location header', async (t) => {
   const call = await withApp(t);
-  const res = await call('POST', '/contacts', { firstName: '  Ece  ', email: 'ece@example.com' });
+  const res = await call('POST', '/contacts', { firstName: '  Ece  ', lastName: ' Kaya ', email: 'ece@example.com' });
 
   assert.equal(res.status, 201);
   assert.equal(res.headers.get('location'), '/contacts/1');
   assert.equal(res.json.id, 1);
   assert.equal(res.json.firstName, 'Ece');
-  assert.equal(res.json.lastName, null);
+  assert.equal(res.json.lastName, 'Kaya');
+  assert.equal(res.json.phone, null);
+  assert.deepEqual(res.json.tags, []);
   assert.equal(res.json.favorite, false);
   assert.deepEqual(res.json.address, { street: null, city: null, country: null, postalCode: null });
   assert.equal(res.json.createdAt, res.json.updatedAt);
@@ -67,7 +69,18 @@ test('POST /contacts reports every validation problem at once', async (t) => {
   assert.equal(res.status, 400);
   assert.equal(res.json.error.code, 'VALIDATION_ERROR');
   const fields = res.json.error.details.map((d) => d.field).sort();
-  assert.deepEqual(fields, ['address.zip', 'email', 'favorite', 'firstName', 'nickname', 'phone']);
+  assert.deepEqual(fields, ['address.zip', 'email', 'favorite', 'firstName', 'lastName', 'nickname', 'phone']);
+});
+
+test('POST /contacts requires both names', async (t) => {
+  const call = await withApp(t);
+
+  const noLast = await call('POST', '/contacts', { firstName: 'Ece' });
+  assert.equal(noLast.status, 400);
+  assert.deepEqual(noLast.json.error.details, [{ field: 'lastName', message: 'Required' }]);
+
+  const blank = await call('POST', '/contacts', { firstName: 'Ece', lastName: '   ' });
+  assert.deepEqual(blank.json.error.details, [{ field: 'lastName', message: 'Required' }]);
 });
 
 test('POST /contacts rejects a body that is not a JSON object, and malformed JSON', async (t) => {
@@ -84,7 +97,7 @@ test('POST /contacts rejects a body that is not a JSON object, and malformed JSO
 
 test('GET /contacts/:id returns 404 for unknown ids and 400 for bad ids', async (t) => {
   const call = await withApp(t);
-  const created = await call('POST', '/contacts', { firstName: 'Ece' });
+  const created = await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
 
   assert.equal((await call('GET', `/contacts/${created.json.id}`)).status, 200);
   assert.equal((await call('GET', '/contacts/999')).status, 404);
@@ -95,24 +108,27 @@ test('GET /contacts/:id returns 404 for unknown ids and 400 for bad ids', async 
 test('PUT replaces every field; omitted ones go back to defaults', async (t) => {
   const call = await withApp(t);
   await call('POST', '/contacts', {
-    firstName: 'Ece', lastName: 'Kaya', email: 'ece@example.com', favorite: true, address: { city: 'Bursa' },
+    firstName: 'Ece', lastName: 'Kaya', email: 'ece@example.com', favorite: true, tags: ['Work'],
+    address: { city: 'Bursa' },
   });
 
-  const res = await call('PUT', '/contacts/1', { firstName: 'Elif' });
+  const res = await call('PUT', '/contacts/1', { firstName: 'Elif', lastName: 'Demir' });
   assert.equal(res.status, 200);
   assert.equal(res.json.firstName, 'Elif');
-  assert.equal(res.json.lastName, null);
+  assert.equal(res.json.lastName, 'Demir');
   assert.equal(res.json.email, null);
+  assert.deepEqual(res.json.tags, []);
   assert.equal(res.json.favorite, false);
   assert.equal(res.json.address.city, null);
 
   assert.equal((await call('PUT', '/contacts/1', { lastName: 'Only' })).status, 400);
-  assert.equal((await call('PUT', '/contacts/42', { firstName: 'X' })).status, 404);
+  assert.equal((await call('PUT', '/contacts/1', { firstName: 'Only' })).status, 400);
+  assert.equal((await call('PUT', '/contacts/42', { firstName: 'X', lastName: 'Y' })).status, 404);
 });
 
 test('PUT ignores read-only fields so a GET result can be sent back', async (t) => {
   const call = await withApp(t);
-  const created = await call('POST', '/contacts', { firstName: 'Ece' });
+  const created = await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
   const res = await call('PUT', '/contacts/1', { ...created.json, firstName: 'Elif', id: 77 });
 
   assert.equal(res.status, 200);
@@ -132,24 +148,26 @@ test('PATCH changes only the fields sent and merges the address', async (t) => {
   assert.equal(res.json.lastName, 'Kaya');
   assert.deepEqual(res.json.address, { street: 'Cad. 7', city: 'İzmir', country: null, postalCode: null });
 
-  const cleared = await call('PATCH', '/contacts/1', { lastName: null, address: null });
-  assert.equal(cleared.json.lastName, null);
+  const cleared = await call('PATCH', '/contacts/1', { phone: null, address: null });
+  assert.equal(cleared.json.phone, null);
+  assert.equal(cleared.json.lastName, 'Kaya');
   assert.deepEqual(cleared.json.address, { street: null, city: null, country: null, postalCode: null });
 });
 
 test('PATCH rejects an empty body, an emptied firstName and unknown ids', async (t) => {
   const call = await withApp(t);
-  await call('POST', '/contacts', { firstName: 'Ece' });
+  await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
 
   assert.equal((await call('PATCH', '/contacts/1', {})).status, 400);
   assert.equal((await call('PATCH', '/contacts/1', { firstName: '  ' })).status, 400);
+  assert.equal((await call('PATCH', '/contacts/1', { lastName: null })).status, 400);
   assert.equal((await call('PATCH', '/contacts/1', { email: 'bad' })).status, 400);
   assert.equal((await call('PATCH', '/contacts/9', { phone: '+90 555 010 1234' })).status, 404);
 });
 
 test('PATCH moves updatedAt forward but never createdAt', async (t) => {
   const call = await withApp(t);
-  const created = await call('POST', '/contacts', { firstName: 'Ece' });
+  const created = await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
   await new Promise((resolve) => setTimeout(resolve, 5));
   const res = await call('PATCH', '/contacts/1', { lastName: 'Kaya' });
 
@@ -159,7 +177,7 @@ test('PATCH moves updatedAt forward but never createdAt', async (t) => {
 
 test('DELETE removes the contact; a second DELETE is 404', async (t) => {
   const call = await withApp(t);
-  await call('POST', '/contacts', { firstName: 'Ece' });
+  await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
 
   const first = await call('DELETE', '/contacts/1');
   assert.equal(first.status, 204);
@@ -170,8 +188,8 @@ test('DELETE removes the contact; a second DELETE is 404', async (t) => {
 
 test('favorite endpoints are idempotent and feed the favorite filter', async (t) => {
   const call = await withApp(t);
-  await call('POST', '/contacts', { firstName: 'Ece' });
-  await call('POST', '/contacts', { firstName: 'Elif' });
+  await call('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
+  await call('POST', '/contacts', { firstName: 'Elif', lastName: 'Demir' });
 
   const first = await call('PUT', '/contacts/1/favorite');
   const again = await call('PUT', '/contacts/1/favorite');
@@ -203,6 +221,86 @@ test('search ignores case and Turkish accents and spans several fields', async (
   assert.equal((await call('GET', '/contacts?q=nobody-has-this')).json.meta.total, 0);
 });
 
+test('tags are trimmed, merged when they differ only by case, and replaced on PATCH and PUT', async (t) => {
+  const call = await withApp(t);
+  const created = await call('POST', '/contacts', {
+    firstName: 'Ece', lastName: 'Kaya', tags: [' Work ', 'work', 'WORK', 'Işık', 'ISIK'],
+  });
+  assert.deepEqual(created.json.tags, ['Work', 'Işık']);
+
+  const patched = await call('PATCH', '/contacts/1', { tags: ['Family'] });
+  assert.deepEqual(patched.json.tags, ['Family']);
+
+  const untouched = await call('PATCH', '/contacts/1', { phone: '+90 555 010 1234' });
+  assert.deepEqual(untouched.json.tags, ['Family']);
+
+  const cleared = await call('PATCH', '/contacts/1', { tags: null });
+  assert.deepEqual(cleared.json.tags, []);
+
+  await call('PATCH', '/contacts/1', { tags: ['Friends'] });
+  const replaced = await call('PUT', '/contacts/1', { firstName: 'Ece', lastName: 'Kaya' });
+  assert.deepEqual(replaced.json.tags, []);
+});
+
+test('tags reject bad shapes with one error per bad entry', async (t) => {
+  const call = await withApp(t);
+  const body = (tags) => ({ firstName: 'Ece', lastName: 'Kaya', tags });
+
+  const notArray = await call('POST', '/contacts', body('Work'));
+  assert.deepEqual(notArray.json.error.details, [{ field: 'tags', message: 'Must be an array of strings' }]);
+
+  const bad = await call('POST', '/contacts', body(['ok', '', 5, 'x'.repeat(31)]));
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.json.error.details.map((d) => d.field), ['tags[1]', 'tags[2]', 'tags[3]']);
+
+  const tooMany = await call('POST', '/contacts', body(Array.from({ length: 11 }, (_, i) => `tag${i}`)));
+  assert.deepEqual(tooMany.json.error.details, [{ field: 'tags', message: 'Must have at most 10 tags' }]);
+
+  const ten = await call('POST', '/contacts', body(Array.from({ length: 10 }, (_, i) => `tag${i}`)));
+  assert.equal(ten.status, 201);
+});
+
+test('tag filter ignores case and accents and combines with other filters', async (t) => {
+  const call = await withApp(t, { seed: true });
+
+  assert.deepEqual(names(await call('GET', '/contacts?tag=work')), ['Mehmet', 'Işık', 'John']);
+  assert.deepEqual(names(await call('GET', '/contacts?tag=FRIENDS')), ['Ayşe', 'Işık', 'Zeynep']);
+  assert.deepEqual(names(await call('GET', '/contacts?tag=work&favorite=true')), ['Işık']);
+  assert.deepEqual(names(await call('GET', '/contacts?tag=work&sortBy=name&order=desc')), ['Mehmet', 'John', 'Işık']);
+  assert.equal((await call('GET', '/contacts?tag=nope')).json.meta.total, 0);
+  // A tag is matched whole: "wor" is not "Work".
+  assert.equal((await call('GET', '/contacts?tag=wor')).json.meta.total, 0);
+});
+
+test('search also finds contacts by tag', async (t) => {
+  const call = await withApp(t, { seed: true });
+  assert.deepEqual(names(await call('GET', '/contacts?q=family')), ['Ayşe', 'Marie']);
+});
+
+test('GET /tags lists each tag once, A-Z, with a count', async (t) => {
+  const call = await withApp(t, { seed: true });
+
+  assert.deepEqual((await call('GET', '/tags')).json, {
+    data: [
+      { tag: 'Family', count: 2 },
+      { tag: 'Friends', count: 3 },
+      { tag: 'Work', count: 3 },
+    ],
+  });
+
+  // Counts follow deletes and edits, and "friends" counts as the existing "Friends".
+  await call('DELETE', '/contacts/4');
+  await call('PATCH', '/contacts/6', { tags: ['friends', 'Family'] });
+  assert.deepEqual((await call('GET', '/tags')).json.data, [
+    { tag: 'Family', count: 3 },
+    { tag: 'Friends', count: 3 },
+    { tag: 'Work', count: 2 },
+  ]);
+
+  const empty = await withApp(t);
+  assert.deepEqual((await empty('GET', '/tags')).json, { data: [] });
+});
+
 test('search combines with the favorite filter', async (t) => {
   const call = await withApp(t, { seed: true });
   assert.deepEqual(names(await call('GET', '/contacts?q=turkiye&favorite=true')), ['Ayşe', 'Işık']);
@@ -225,13 +323,24 @@ test('sort orders by the chosen field in both directions, Turkish-aware', async 
 test('sort puts contacts with a missing value last in either direction', async (t) => {
   const call = await withApp(t, { seed: true });
 
-  // Zeynep has no last name.
-  assert.deepEqual(names(await call('GET', '/contacts?sortBy=lastName&order=asc')), [
-    'Mehmet', 'Işık', 'Marie', 'John', 'Ayşe', 'Zeynep',
+  // Zeynep has no email.
+  assert.deepEqual(names(await call('GET', '/contacts?sortBy=email&order=asc')), [
+    'Ayşe', 'Işık', 'John', 'Marie', 'Mehmet', 'Zeynep',
   ]);
-  assert.deepEqual(names(await call('GET', '/contacts?sortBy=lastName&order=desc')), [
-    'Ayşe', 'John', 'Marie', 'Işık', 'Mehmet', 'Zeynep',
+  assert.deepEqual(names(await call('GET', '/contacts?sortBy=email&order=desc')), [
+    'Mehmet', 'Marie', 'John', 'Işık', 'Ayşe', 'Zeynep',
   ]);
+});
+
+test('sortBy=name orders by first name, then last name', async (t) => {
+  const call = await withApp(t);
+  await call('POST', '/contacts', { firstName: 'Ali', lastName: 'Veli' });
+  await call('POST', '/contacts', { firstName: 'Ali', lastName: 'Aksoy' });
+  await call('POST', '/contacts', { firstName: 'Ahmet', lastName: 'Zorlu' });
+
+  const fullNames = (res) => res.json.data.map((c) => `${c.firstName} ${c.lastName}`);
+  assert.deepEqual(fullNames(await call('GET', '/contacts?sortBy=name')), ['Ahmet Zorlu', 'Ali Aksoy', 'Ali Veli']);
+  assert.deepEqual(fullNames(await call('GET', '/contacts?sortBy=name&order=desc')), ['Ali Veli', 'Ali Aksoy', 'Ahmet Zorlu']);
 });
 
 test('sort defaults to creation order and rejects unknown fields', async (t) => {
@@ -276,7 +385,7 @@ test('seeded app starts with sample contacts', async (t) => {
 test('two apps do not share data', async (t) => {
   const a = await withApp(t);
   const b = await withApp(t);
-  await a('POST', '/contacts', { firstName: 'Ece' });
+  await a('POST', '/contacts', { firstName: 'Ece', lastName: 'Kaya' });
   assert.equal((await b('GET', '/contacts')).json.meta.total, 0);
 });
 
@@ -303,7 +412,7 @@ test('swagger page and OpenAPI document are served', async (t) => {
   assert.equal(spec.status, 200);
   assert.equal(spec.json.openapi, '3.0.3');
   assert.deepEqual(Object.keys(spec.json.paths).sort(), [
-    '/contacts', '/contacts/{id}', '/contacts/{id}/favorite', '/health',
+    '/contacts', '/contacts/{id}', '/contacts/{id}/favorite', '/health', '/tags',
   ]);
 });
 

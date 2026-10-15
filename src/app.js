@@ -54,6 +54,11 @@ function createApp({ store = new ContactStore(), seed = false, logRequests = fal
     res.json({ status: 'ok', contacts: store.size, uptimeSeconds: Math.round(process.uptime()) });
   });
 
+  // --- Tags ---------------------------------------------------------------
+  app.get('/tags', (req, res) => {
+    res.json({ data: store.listTags() });
+  });
+
   // --- Contacts -----------------------------------------------------------
   app.get('/contacts', (req, res) => {
     res.json(store.list(parseListQuery(req.query)));
