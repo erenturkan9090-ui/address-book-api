@@ -1,0 +1,12 @@
+# Render Blueprint: New + > Blueprint, pick this repository, and Render reads this file.
+services:
+  - type: web
+    name: address-book-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22

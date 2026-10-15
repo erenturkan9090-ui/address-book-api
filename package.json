@@ -1,0 +1,28 @@
+{
+  "name": "address-book-api",
+  "version": "1.0.0",
+  "description": "Address Book REST API with in-memory storage and a Swagger UI page (SE4458 Assignment 2).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "rest",
+    "api",
+    "express",
+    "swagger",
+    "openapi",
+    "address-book"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.3.0",
+    "swagger-ui-express": "^5.0.1"
+  }
+}
