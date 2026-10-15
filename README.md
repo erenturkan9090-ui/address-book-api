@@ -7,7 +7,7 @@ A REST API for an address book. You can create, edit, update, delete, search, so
 | | |
 |---|---|
 | **Source code** | https://github.com/erenturkan9090-ui/address-book-api |
-| **Live API + Swagger** | https://YOUR-SERVICE.onrender.com/api-docs |
+| **Live API + Swagger** | https://address-book-api-tmeq.onrender.com/api-docs |
 | **Author** | Eren Türkan |
 
 Stack: Node.js 20+, Express 5, `swagger-ui-express`. Tests use the built-in `node:test`, so there is nothing extra to install.
@@ -124,6 +124,7 @@ test/api.test.js 23 end-to-end tests against a real HTTP server
 
 - **In-memory data does not fit serverless hosting.** On a platform that runs each request in a possibly different short-lived instance (Vercel functions, for example), one request's `POST` may not be visible to the next `GET`. This API therefore targets a platform that keeps a **single long-running Node process** (Render, Azure App Service, Railway, ...).
 - **Free hosting sleeps.** A free Render service spins down after a period without traffic, so the first request after that is slow and the data resets to the sample contacts. Opening `/health` once before a demo wakes it.
+- **The live URL has a random suffix.** `https://address-book-api.onrender.com` is not this service (it answers 404), so Render gave it the subdomain `address-book-api-tmeq`. Use the link at the top of this README.
 - **A sorting bug caught by the tests.** The six sample contacts are created within the same millisecond, so sorting by `createdAt` descending left them in ascending order: the tie-breaker (id) was not flipped with the direction. It is now, and a test covers it.
 - **`node --test test/` fails on Node 24.** Node treated the folder as a module to run. The `test` script is plain `node --test`, which finds the tests by itself and works on Node 20 and newer.
 
